@@ -1,6 +1,9 @@
 package deck
 
-import "go-poker-sim/internal/card"
+import (
+	"go-poker-sim/internal/card"
+	"math/rand"
+)
 
 type Deck struct {
 	Cards []card.Card
@@ -12,11 +15,11 @@ func New() *Deck {
 		FaceValues := [13]string{"2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"}
 
 		cards := make([]card.Card, 0, 52)
-		for _, Suit := range Suits {
-			for _, FaceValue := range FaceValues {
+		for _, s := range Suits {
+			for _, fV := range FaceValues {
 				cards = append(cards, card.Card{
-					Suit:      Suit,
-					FaceValue: FaceValue,
+					Suit:      s,
+					FaceValue: fV,
 				})
 			}
 		}
@@ -29,6 +32,10 @@ func New() *Deck {
 	}
 }
 
-func Shuffle() {
-
+func (d *Deck) Shuffle() {
+	cards := d.Cards
+    for i := range cards {
+        j := rand.Intn(i + 1)
+	    cards[i], cards[j] = cards[j], cards[i]
+	}
 }
