@@ -23,6 +23,15 @@ func main() {
 	seed := flag.Uint64("seed", 0, "RNG seed for reproducible runs (0 = random)")
 	tsh := flag.Int("top-starting-hands", 0, "limit summary.csv to the top N starting hands by win% (0 = all, max 1326)")
 	flag.IntVar(tsh, "tsh", 0, "shorthand for -top-starting-hands")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags]\n\nFlags:\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr, `
+Examples:
+  go run ./cmd/go-poker-sim -players 6 -runs 100000
+  go run ./cmd/go-poker-sim -p 2 -r 1000000 -tsh 20 -seed 42
+  ./go-poker-sim -players 10 -runs 50000 -workers 8 -format jsonl -out results`)
+	}
 	flag.Parse()
 
 	if *runs <= 0 {
