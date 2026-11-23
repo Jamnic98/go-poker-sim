@@ -26,21 +26,23 @@ import (
 )
 
 const (
-	MinPlayers       = 2
-	MaxPlayers       = 10
-	DefaultChunkSize = 10_000
-	FormatCSV        = "csv"
-	FormatJSONL      = "jsonl"
+	MinPlayers          = 2
+	MaxPlayers          = 10
+	DefaultChunkSize    = 10_000
+	MaxTopStartingHands = 1326 // number of distinct 2-card starting hands
+	FormatCSV           = "csv"
+	FormatJSONL         = "jsonl"
 )
 
 type Config struct {
-	Players   int
-	Runs      int
-	Workers   int
-	ChunkSize int
-	OutDir    string
-	Format    string
-	Seed      uint64 // 0 means random (time-based)
+	Players          int
+	Runs             int
+	Workers          int
+	ChunkSize        int
+	OutDir           string
+	Format           string
+	Seed             uint64 // 0 means random (time-based)
+	TopStartingHands int    // 0 = include all starting hands in the summary
 }
 
 func (c Config) Validate() error {
@@ -61,6 +63,9 @@ func (c Config) Validate() error {
 	}
 	if c.OutDir == "" {
 		return errors.New("out dir must not be empty")
+	}
+	if c.TopStartingHands < 0 || c.TopStartingHands > MaxTopStartingHands {
+		return fmt.Errorf("top starting hands must be between 0 and %d, got %d", MaxTopStartingHands, c.TopStartingHands)
 	}
 	return nil
 }
@@ -89,12 +94,13 @@ func (p PocketStat) WinPct() float64 {
 }
 
 type Stats struct {
-	Runs     int
-	Hands    int
-	Duration time.Duration
-	OutDir   string
-	Seed     uint64
-	Pockets  map[string]*PocketStat
+	Runs       int
+	Hands      int
+	Duration   time.Duration
+	OutDir     string
+	Seed       uint64
+	Pockets    map[string]*PocketStat
+	Categories map[string]int
 }
 
 type runOutput struct {
@@ -176,19 +182,27 @@ func Run(cfg Config) (*Stats, error) {
 	}
 
 	now := time.Now()
-	runDir := filepath.Join(cfg.OutDir, now.Format("2006-01-02"),
+	baseDir := filepath.Join(cfg.OutDir, now.Format("2006-01-02"),
 		fmt.Sprintf("[%s]-%dp-%dr", now.Format("15:04:05"), cfg.Players, cfg.Runs))
+	runDir := baseDir
+	for i := 2; ; i++ {
+		if _, err := os.Stat(runDir); os.IsNotExist(err) {
+			break
+		}
+		runDir = fmt.Sprintf("%s-%d", baseDir, i)
+	}
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating output dir: %w", err)
 	}
 
 	start := time.Now()
 	stats := &Stats{
-		Runs:    cfg.Runs,
-		Hands:   cfg.Runs * cfg.Players,
-		OutDir:  runDir,
-		Seed:    seed,
-		Pockets: make(map[string]*PocketStat),
+		Runs:       cfg.Runs,
+		Hands:      cfg.Runs * cfg.Players,
+		OutDir:     runDir,
+		Seed:       seed,
+		Pockets:    make(map[string]*PocketStat),
+		Categories: make(map[string]int),
 	}
 
 	jobs := make(chan int, cfg.Workers)
@@ -221,6 +235,7 @@ func Run(cfg Config) (*Stats, error) {
 		return nil, err
 	}
 	stats.Duration = time.Since(start)
+	logTopPockets(stats)
 	return stats, nil
 }
 
@@ -274,6 +289,7 @@ func collect(cfg Config, runDir string, results <-chan runOutput, stats *Stats) 
 			if r.Won {
 				st.Wins++
 			}
+			stats.Categories[r.HandType]++
 		}
 		runsDone++
 	}
@@ -283,7 +299,10 @@ func collect(cfg Config, runDir string, results <-chan runOutput, stats *Stats) 
 	if firstErr != nil {
 		return firstErr
 	}
-	return writeSummary(filepath.Join(runDir, "summary.csv"), stats)
+	if err := writeSummary(filepath.Join(runDir, "summary.csv"), stats, cfg.TopStartingHands); err != nil {
+		return err
+	}
+	return writeCategories(filepath.Join(runDir, "categories.csv"), stats)
 }
 
 func writeChunk(path, format string, rows []HandResult) error {
@@ -328,17 +347,7 @@ func writeChunk(path, format string, rows []HandResult) error {
 	return bw.Flush()
 }
 
-func writeSummary(path string, stats *Stats) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	bw := bufio.NewWriter(f)
-	w := csv.NewWriter(bw)
-	if err := w.Write([]string{"pocket", "hands", "wins", "win_pct"}); err != nil {
-		return err
-	}
+func sortedPockets(stats *Stats) []*PocketStat {
 	pockets := make([]*PocketStat, 0, len(stats.Pockets))
 	for _, p := range stats.Pockets {
 		pockets = append(pockets, p)
@@ -350,6 +359,39 @@ func writeSummary(path string, stats *Stats) error {
 		}
 		return pockets[i].Pocket < pockets[j].Pocket
 	})
+	return pockets
+}
+
+func logTopPockets(stats *Stats) {
+	pockets := sortedPockets(stats)
+	n := len(pockets)
+	if n > 10 {
+		n = 10
+	}
+	if n == 0 {
+		return
+	}
+	log.Printf("top %d starting hands by win%%:", n)
+	for _, p := range pockets[:n] {
+		log.Printf("  %s: %.2f%% (%d wins / %d hands)", p.Pocket, p.WinPct(), p.Wins, p.Hands)
+	}
+}
+
+func writeSummary(path string, stats *Stats, limit int) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	bw := bufio.NewWriter(f)
+	w := csv.NewWriter(bw)
+	if err := w.Write([]string{"pocket", "hands", "wins", "win_pct"}); err != nil {
+		return err
+	}
+	pockets := sortedPockets(stats)
+	if limit > 0 && limit < len(pockets) {
+		pockets = pockets[:limit]
+	}
 	for _, p := range pockets {
 		if err := w.Write([]string{
 			p.Pocket,
@@ -357,6 +399,44 @@ func writeSummary(path string, stats *Stats) error {
 			strconv.Itoa(p.Wins),
 			strconv.FormatFloat(p.WinPct(), 'f', 4, 64),
 		}); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return err
+	}
+	return bw.Flush()
+}
+
+func writeCategories(path string, stats *Stats) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	bw := bufio.NewWriter(f)
+	w := csv.NewWriter(bw)
+	if err := w.Write([]string{"hand_type", "hands", "pct"}); err != nil {
+		return err
+	}
+	categories := make([]string, 0, len(stats.Categories))
+	for c := range stats.Categories {
+		categories = append(categories, c)
+	}
+	sort.Slice(categories, func(i, j int) bool {
+		ci, cj := stats.Categories[categories[i]], stats.Categories[categories[j]]
+		if ci != cj {
+			return ci > cj
+		}
+		return categories[i] < categories[j]
+	})
+	for _, c := range categories {
+		pct := 0.0
+		if stats.Hands > 0 {
+			pct = 100 * float64(stats.Categories[c]) / float64(stats.Hands)
+		}
+		if err := w.Write([]string{c, strconv.Itoa(stats.Categories[c]), strconv.FormatFloat(pct, 'f', 4, 64)}); err != nil {
 			return err
 		}
 	}

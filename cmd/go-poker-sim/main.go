@@ -21,6 +21,8 @@ func main() {
 	out := flag.String("out", "results", "output directory for results")
 	format := flag.String("format", sim.FormatCSV, "output format: csv or jsonl")
 	seed := flag.Uint64("seed", 0, "RNG seed for reproducible runs (0 = random)")
+	tsh := flag.Int("top-starting-hands", 0, "limit summary.csv to the top N starting hands by win% (0 = all, max 1326)")
+	flag.IntVar(tsh, "tsh", 0, "shorthand for -top-starting-hands")
 	flag.Parse()
 
 	if *runs <= 0 {
@@ -30,13 +32,14 @@ func main() {
 	}
 
 	cfg := sim.Config{
-		Players:   *players,
-		Runs:      *runs,
-		Workers:   *workers,
-		ChunkSize: *chunk,
-		OutDir:    *out,
-		Format:    *format,
-		Seed:      *seed,
+		Players:          *players,
+		Runs:             *runs,
+		Workers:          *workers,
+		ChunkSize:        *chunk,
+		OutDir:           *out,
+		Format:           *format,
+		Seed:             *seed,
+		TopStartingHands: *tsh,
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("invalid configuration: %v", err)

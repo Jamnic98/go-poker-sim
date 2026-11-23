@@ -26,6 +26,7 @@ go build -o go-poker-sim ./cmd/go-poker-sim
 | `-out`      | `results`        | Output directory                                     |
 | `-format`   | `csv`            | Output format: `csv` or `jsonl`                      |
 | `-seed`     | `0` (random)     | RNG seed; set it for reproducible runs               |
+| `-tsh` / `-top-starting-hands` | `0` (all) | Limit `summary.csv` to the top N starting hands by win% (max 1326) |
 
 ## Output
 
@@ -38,6 +39,9 @@ Results land in `results/<date>/[<time>]-<players>p-<runs>r/`:
 - `summary.csv` — aggregated per starting pocket (canonicalised, rank-desc):
   `pocket,hands,wins,win_pct`, sorted by win percentage descending. Tied hands
   count as a win for every player involved (split pot).
+- `categories.csv` — hand-type frequency breakdown: `hand_type,hands,pct`.
+
+At the end of a run the top 10 starting hands by win% are also logged to stderr.
 
 Chunks are buffered in memory per chunk and written sorted by `(run_id, seat)`,
 so output is byte-for-byte reproducible for a given `-seed`, independent of the

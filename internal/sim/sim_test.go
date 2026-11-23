@@ -33,6 +33,8 @@ func TestConfigValidate(t *testing.T) {
 		{"zero chunk size", func(c *Config) { c.ChunkSize = 0 }},
 		{"bad format", func(c *Config) { c.Format = "xml" }},
 		{"empty out dir", func(c *Config) { c.OutDir = "" }},
+		{"negative top starting hands", func(c *Config) { c.TopStartingHands = -1 }},
+		{"too many top starting hands", func(c *Config) { c.TopStartingHands = MaxTopStartingHands + 1 }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,6 +360,57 @@ func TestRunInvalidConfig(t *testing.T) {
 	}
 	if _, err := Run(Config{Players: 2, Runs: 10, Workers: 1, ChunkSize: 5, OutDir: t.TempDir(), Format: "xml"}); err == nil {
 		t.Error("Run with bad format expected error, got nil")
+	}
+}
+
+func TestRunTopStartingHandsAndCategories(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Players: 2, Runs: 200, Workers: 3, ChunkSize: 100, OutDir: dir, Format: FormatCSV, Seed: 31, TopStartingHands: 5}
+	stats, err := Run(cfg)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+
+	summary := readCSVFile(t, filepath.Join(stats.OutDir, "summary.csv"))
+	if len(summary) != 1+5 {
+		t.Errorf("summary.csv has %d rows, want header + 5 (tsh cap)", len(summary))
+	}
+	// win_pct must be non-increasing down the file
+	for i := 2; i < len(summary); i++ {
+		prev, err := strconv.ParseFloat(summary[i-1][3], 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cur, err := strconv.ParseFloat(summary[i][3], 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cur > prev {
+			t.Errorf("summary not sorted by win_pct desc: row %d %.4f > row %d %.4f", i, cur, i-1, prev)
+		}
+	}
+
+	categories := readCSVFile(t, filepath.Join(stats.OutDir, "categories.csv"))
+	if len(categories) < 2 {
+		t.Fatal("categories.csv has no data rows")
+	}
+	if !reflect.DeepEqual(categories[0], []string{"hand_type", "hands", "pct"}) {
+		t.Fatalf("categories header = %v", categories[0])
+	}
+	total := 0
+	statsTotal := 0
+	for _, rec := range categories[1:] {
+		n, err := strconv.Atoi(rec[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += n
+	}
+	for _, n := range stats.Categories {
+		statsTotal += n
+	}
+	if total != 400 || statsTotal != 400 {
+		t.Errorf("categories totals: file=%d stats=%d, want 400 (200 runs x 2 players)", total, statsTotal)
 	}
 }
 
