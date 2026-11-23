@@ -1,41 +1,49 @@
 package deck
 
 import (
+	"errors"
+	"math/rand/v2"
+
 	"go-poker-sim/internal/card"
-	"math/rand"
 )
 
+// Deck is a standard 52-card deck. Cards are dealt from the end via Pop.
 type Deck struct {
 	Cards []card.Card
 }
 
 func New() *Deck {
-	createCards := func() []card.Card {
-		Suits := [4]string{"C", "D", "S", "H"}
-		FaceValues := [13]string{"2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"}
-
-		cards := make([]card.Card, 0, 52)
-		for _, s := range Suits {
-			for _, fV := range FaceValues {
-				cards = append(cards, card.Card{
-					Suit:      s,
-					FaceValue: fV,
-				})
-			}
+	cards := make([]card.Card, 0, 52)
+	for s := card.Clubs; s <= card.Spades; s++ {
+		for r := card.MinRank; r <= card.MaxRank; r++ {
+			cards = append(cards, card.Card{Rank: r, Suit: s})
 		}
-
-		return cards
 	}
-
-	return &Deck{
-		Cards: createCards(),
-	}
+	return &Deck{Cards: cards}
 }
 
-func (d *Deck) Shuffle() {
-	cards := d.Cards
-    for i := range cards {
-        j := rand.Intn(i + 1)
-	    cards[i], cards[j] = cards[j], cards[i]
+func (d *Deck) Len() int {
+	return len(d.Cards)
+}
+
+// Shuffle performs a Fisher-Yates shuffle using the provided RNG.
+// Each goroutine should use its own *rand.Rand to avoid lock contention.
+func (d *Deck) Shuffle(r *rand.Rand) {
+	r.Shuffle(len(d.Cards), func(i, j int) {
+		d.Cards[i], d.Cards[j] = d.Cards[j], d.Cards[i]
+	})
+}
+
+// Pop removes and returns the top card of the deck.
+func (d *Deck) Pop() (card.Card, error) {
+	if len(d.Cards) == 0 {
+		return card.Card{}, errors.New("cannot pop from an empty deck")
 	}
+	c := d.Cards[len(d.Cards)-1]
+	d.Cards = d.Cards[:len(d.Cards)-1]
+	return c, nil
+}
+
+func (d *Deck) Reset() {
+	d.Cards = New().Cards
 }
