@@ -6,9 +6,17 @@ the winner(s), including split pots. Hands are simulated concurrently across a
 goroutine worker pool, and results are streamed to chunked CSV (or JSONL) files
 plus a per-starting-pocket win-rate summary.
 
+## Layout
+
+- `sim/` — the Go module (CLI in `sim/cmd/go-poker-sim`, library packages in
+  `sim/internal/...`, API server in `sim/cmd/api`)
+- `web/` — React + Vite dashboard that visualises results and can start new
+  runs through the API
+
 ## Usage
 
 ```sh
+cd sim
 go run ./cmd/go-poker-sim --players 6 --runs 100000
 # or build a binary
 go build -o go-poker-sim ./cmd/go-poker-sim
@@ -69,7 +77,7 @@ worker count (each run uses its own RNG seeded from `(seed, runID)`).
 ## Testing
 
 ```sh
-go test ./...
+cd sim && go test ./...
 ```
 
 Table-driven unit tests cover every package: card parsing/validation, deck

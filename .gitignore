@@ -1,2 +1,7 @@
-/results/
-/go-poker-sim
+# Go build output and simulation results (module lives in sim/)
+/sim/go-poker-sim
+/sim/results/
+
+# Frontend
+/web/node_modules/
+/web/dist/
