@@ -32,7 +32,56 @@ const (
 	MaxTopStartingHands = 1326 // number of distinct 2-card starting hands
 	FormatCSV           = "csv"
 	FormatJSONL         = "jsonl"
+	ManifestFileName    = "manifest.json"
+	ManifestVersion     = 1
+	StatusRunning       = "running"
+	StatusDone          = "done"
+	StatusFailed        = "failed"
 )
+
+// Manifest describes a single simulation run directory. It is written when the
+// run starts (status "running") and updated when it finishes ("done"/"failed"),
+// so tooling can discover runs and their configuration without parsing the
+// directory name or reading stderr logs.
+type Manifest struct {
+	Version          int       `json:"version"`
+	Players          int       `json:"players"`
+	Runs             int       `json:"runs"`
+	Workers          int       `json:"workers"`
+	ChunkSize        int       `json:"chunk_size"`
+	Format           string    `json:"format"`
+	Seed             uint64    `json:"seed"`
+	TopStartingHands int       `json:"top_starting_hands"`
+	Status           string    `json:"status"`
+	StartedAt        time.Time `json:"started_at"`
+	FinishedAt       time.Time `json:"finished_at,omitempty"`
+	DurationMs       int64     `json:"duration_ms,omitempty"`
+	Hands            int       `json:"hands,omitempty"`
+	Chunks           int       `json:"chunks,omitempty"`
+	Error            string    `json:"error,omitempty"`
+}
+
+func writeManifest(path string, m *Manifest) error {
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+func countChunkFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "pre_flop_sim_chunk_") {
+			n++
+		}
+	}
+	return n
+}
 
 type Config struct {
 	Players          int
@@ -195,6 +244,23 @@ func Run(cfg Config) (*Stats, error) {
 		return nil, fmt.Errorf("creating output dir: %w", err)
 	}
 
+	manifest := &Manifest{
+		Version:          ManifestVersion,
+		Players:          cfg.Players,
+		Runs:             cfg.Runs,
+		Workers:          cfg.Workers,
+		ChunkSize:        cfg.ChunkSize,
+		Format:           cfg.Format,
+		Seed:             seed,
+		TopStartingHands: cfg.TopStartingHands,
+		Status:           StatusRunning,
+		StartedAt:        now,
+	}
+	manifestPath := filepath.Join(runDir, ManifestFileName)
+	if err := writeManifest(manifestPath, manifest); err != nil {
+		return nil, fmt.Errorf("writing manifest: %w", err)
+	}
+
 	start := time.Now()
 	stats := &Stats{
 		Runs:       cfg.Runs,
@@ -232,9 +298,21 @@ func Run(cfg Config) (*Stats, error) {
 	}()
 
 	if err := collect(cfg, runDir, results, stats); err != nil {
+		manifest.Status = StatusFailed
+		manifest.Error = err.Error()
+		manifest.FinishedAt = time.Now()
+		_ = writeManifest(manifestPath, manifest)
 		return nil, err
 	}
 	stats.Duration = time.Since(start)
+	manifest.Status = StatusDone
+	manifest.FinishedAt = time.Now()
+	manifest.DurationMs = stats.Duration.Milliseconds()
+	manifest.Hands = stats.Hands
+	manifest.Chunks = countChunkFiles(runDir)
+	if err := writeManifest(manifestPath, manifest); err != nil {
+		return nil, fmt.Errorf("updating manifest: %w", err)
+	}
 	logTopPockets(stats)
 	return stats, nil
 }

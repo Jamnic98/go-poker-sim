@@ -414,6 +414,69 @@ func TestRunTopStartingHandsAndCategories(t *testing.T) {
 	}
 }
 
+func TestRunWritesManifest(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Players: 3, Runs: 40, Workers: 2, ChunkSize: 20, OutDir: dir, Format: FormatCSV, Seed: 123, TopStartingHands: 10}
+	stats, err := Run(cfg)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(stats.OutDir, ManifestFileName))
+	if err != nil {
+		t.Fatalf("reading manifest: %v", err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("manifest is not valid JSON: %v", err)
+	}
+	if m.Version != ManifestVersion {
+		t.Errorf("manifest version = %d, want %d", m.Version, ManifestVersion)
+	}
+	if m.Status != StatusDone {
+		t.Errorf("manifest status = %q, want %q", m.Status, StatusDone)
+	}
+	if m.Players != 3 || m.Runs != 40 || m.Workers != 2 || m.ChunkSize != 20 {
+		t.Errorf("manifest config = %+v, want players=3 runs=40 workers=2 chunk=20", m)
+	}
+	if m.Format != FormatCSV || m.Seed != 123 || m.TopStartingHands != 10 {
+		t.Errorf("manifest format/seed/tsh = %q/%d/%d, want csv/123/10", m.Format, m.Seed, m.TopStartingHands)
+	}
+	if m.Hands != 120 {
+		t.Errorf("manifest hands = %d, want 120", m.Hands)
+	}
+	if m.Chunks != 2 {
+		t.Errorf("manifest chunks = %d, want 2 (40 runs / chunk 20)", m.Chunks)
+	}
+	if m.Error != "" {
+		t.Errorf("manifest error = %q, want empty", m.Error)
+	}
+	if m.StartedAt.IsZero() || m.FinishedAt.Before(m.StartedAt) {
+		t.Errorf("manifest times: started=%v finished=%v", m.StartedAt, m.FinishedAt)
+	}
+}
+
+func TestRunManifestRecordsEffectiveSeed(t *testing.T) {
+	cfg := Config{Players: 2, Runs: 10, Workers: 1, ChunkSize: 100, OutDir: t.TempDir(), Format: FormatCSV, Seed: 0}
+	stats, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(stats.OutDir, ManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Seed == 0 {
+		t.Error("manifest seed = 0, want the effective (time-based) seed to be recorded")
+	}
+	if stats.Seed != m.Seed {
+		t.Errorf("stats seed %d != manifest seed %d", stats.Seed, m.Seed)
+	}
+}
+
 func TestPocketKeyCanonicalisesOrder(t *testing.T) {
 	if got := pocketKey([]string{"KD", "AH"}); got != "AH KD" {
 		t.Errorf("pocketKey([KD AH]) = %q, want %q", got, "AH KD")
