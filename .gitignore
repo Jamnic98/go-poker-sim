@@ -5,3 +5,6 @@
 # Frontend
 /web/node_modules/
 /web/dist/
+
+# TypeScript incremental build info
+*.tsbuildinfo
