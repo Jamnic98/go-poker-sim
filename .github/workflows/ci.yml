@@ -6,8 +6,11 @@ on:
   pull_request:
 
 jobs:
-  test:
+  go:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sim
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -23,3 +26,21 @@ jobs:
         run: go test -race ./...
       - name: Build
         run: go build ./...
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
